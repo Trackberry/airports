@@ -3,13 +3,16 @@ name: Refresh the airport table
 # OurAirports is edited every day, but the airports with an IATA code change
 # a few at a time, so once a month is plenty. A refresh opens a pull request
 # rather than pushing: 9,000 rows are not reviewable, but the summary of what
-# moved is, and CI runs against the new table before anyone can merge it.
+# moved is, and CI runs against the new table before anyone merges it (started
+# by the last step, since a pull request opened with GITHUB_TOKEN starts no
+# workflows by itself).
 on:
   schedule:
     - cron: "23 6 3 * *"
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
   issues: write
@@ -46,12 +49,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          gh label create refresh-blocked --color D93F0B --force
           gh issue create \
             --title "Airport refresh refused on $(date -u +%Y-%m-%d)" \
             --body-file tmp/refresh/summary.md \
             --label "refresh-blocked"
 
       - name: Open the refresh for review
+        id: pull_request
         if: steps.refresh.outputs.status == 'ok'
         uses: peter-evans/create-pull-request@v7
         with:
@@ -65,3 +70,9 @@ jobs:
             data/airports.csv
             lib/trackberry/airports/version.rb
             CHANGELOG.md
+
+      - name: Run CI on the refresh
+        if: steps.pull_request.outputs.pull-request-operation == 'created' || steps.pull_request.outputs.pull-request-operation == 'updated'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run ci.yml --ref refresh/ourairports

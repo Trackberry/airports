@@ -33,15 +33,16 @@ namespace :airports do
     airports = Trackberry::Airports
     FileUtils.mkdir_p(REFRESH_DIR)
     before = File.join(REFRESH_DIR, "before.csv")
-    if File.exist?(airports::TABLE_PATH)
+    had_table = File.exist?(airports::TABLE_PATH)
+    if had_table
       FileUtils.cp(airports::TABLE_PATH, before)
     else
       File.write(before, "#{airports::Builder::HEADERS.join(',')}\n")
     end
 
-    # Three downloads and a hand-edited overrides file: any of them failing is
-    # a refusal for a person to read, the same as a failed gate, not a red
-    # build nobody is told about.
+    # Three downloads, two hand-kept files and the comparison: any of them
+    # failing is a refusal for a person to read, the same as a failed gate,
+    # not a red build nobody is told about.
     begin
       source = airports::Builder.fetch(args[:source] || airports::Builder::SOURCE_URL)
       subdivisions = Seaports::Subdivisions.parse(
@@ -50,27 +51,28 @@ namespace :airports do
       boundaries = Seaports::Boundaries.parse(
         airports::Builder.fetch(args[:boundaries] || Seaports::Boundaries::SOURCE_URL)
       )
-      builder = airports::Builder.new(source, subdivisions:, boundaries:, overrides: airports::Builder.overrides)
+      builder = airports::Builder.new(source, subdivisions:, boundaries:, overrides: airports::Builder.overrides,
+        served_cities: airports::Builder.served_cities)
       builder.write(airports::TABLE_PATH)
+
+      diff = airports::Diff.between(before, airports::TABLE_PATH)
+      overrides = builder.override_report
+      summary = [diff.summary, overrides.empty? ? nil : "**Overrides to review**\n\n#{overrides.map { |line| "- #{line}" }.join("\n")}"]
+      File.write(File.join(REFRESH_DIR, "summary.md"), "#{summary.compact.join("\n\n")}\n")
+      puts overrides unless overrides.empty?
     rescue StandardError => e
-      restore(before, airports::TABLE_PATH)
+      restore(before, airports::TABLE_PATH, had_table)
       File.write(File.join(REFRESH_DIR, "summary.md"), "**Blocked**\n\nThe rebuild stopped: #{e.class}: #{e.message}\n")
       record "failed", "The rebuild stopped: #{e.class}: #{e.message}"
       next
     end
-
-    diff = airports::Diff.between(before, airports::TABLE_PATH)
-    overrides = builder.override_report
-    summary = [diff.summary, overrides.empty? ? nil : "**Overrides to review**\n\n#{overrides.map { |line| "- #{line}" }.join("\n")}"]
-    File.write(File.join(REFRESH_DIR, "summary.md"), "#{summary.compact.join("\n\n")}\n")
-    puts overrides unless overrides.empty?
 
     if !diff.changed?
       record "unchanged", "The table is already current: #{diff.headline}"
     elsif !diff.ok?
       # Put the good table back. A refresh that fails its gates must leave no
       # trace in the working tree, so a later step cannot pick up half of it.
-      restore(before, airports::TABLE_PATH)
+      restore(before, airports::TABLE_PATH, had_table)
       record "failed", "Refused the rebuilt table:\n#{diff.failures.map { |line| "  - #{line}" }.join("\n")}"
     else
       version = bump_version
@@ -79,8 +81,10 @@ namespace :airports do
     end
   end
 
-  def restore(before, table)
-    FileUtils.cp(before, table)
+  # The table as it was, or no table if there was none: never the header-only
+  # stand-in the comparison used.
+  def restore(before, table, had_table)
+    had_table ? FileUtils.cp(before, table) : FileUtils.rm_f(table)
   end
 
   def record(status, message)

@@ -21,7 +21,7 @@ module Trackberry
       SOURCE_URL = "https://davidmegginson.github.io/ourairports-data/airports.csv"
 
       HEADERS = %w[
-        iata icao name city country lat lng kind scheduled
+        iata icao name city municipality country lat lng kind scheduled
         subdivision principal_subdivision subdivision_path subdivision_source
       ].freeze
 
@@ -29,6 +29,14 @@ module Trackberry
       # places. Kept outside data/*.csv so it is not shipped in the gem; only
       # its result is.
       OVERRIDES_PATH = File.expand_path("../../../data/sources/subdivision_overrides.csv", __dir__)
+
+      # The city each airport serves, from OpenFlights. See served_cities.
+      SERVED_CITIES_PATH = File.expand_path("../../../data/sources/served_cities.csv", __dir__)
+
+      # OpenFlights' airport and OurAirports' must be within this distance for
+      # the served city to carry over, so a code IATA has since handed to
+      # another airport does not bring the old one's city with it.
+      SERVED_CITY_WITHIN_KM = 50
 
       # When one IATA code is on several rows, the one an airline flies to
       # wins: scheduled service first, then the larger airport.
@@ -61,6 +69,21 @@ module Trackberry
         end
       end
 
+      # Reads SERVED_CITIES_PATH (or +path+) into { iata => [city, lat, lng] }.
+      #
+      # OurAirports names the town an airport stands in: Zaventem for
+      # Brussels, Spata-Artemida for Athens, Gaziemir for Izmir. A tracking
+      # page and a courier both name the city it serves. OpenFlights does
+      # that, and stopped updating in 2019, so its cities are extracted once
+      # (script/extract_served_cities.rb) and kept here rather than fetched.
+      def self.served_cities(path = SERVED_CITIES_PATH)
+        return {} unless File.exist?(path)
+
+        CSV.foreach(path, headers: true).to_h do |row|
+          [row["iata"], [row["city"], row["lat"].to_f, row["lng"].to_f]]
+        end
+      end
+
       # Where an airport's subdivision comes from, best first:
       #
       # - +overrides+, { iata => code }, reviewed by a person;
@@ -77,11 +100,16 @@ module Trackberry
       # the ISO 3166-2 list), which also gives the path above it. Without that
       # list the subdivision columns stay empty, which keeps a test about
       # something else from needing it.
-      def initialize(source, subdivisions: nil, boundaries: nil, overrides: {})
+      #
+      # +served_cities+ (see Builder.served_cities) gives +city+; an airport it
+      # does not hold, or holds somewhere else, takes OurAirports'
+      # municipality instead.
+      def initialize(source, subdivisions: nil, boundaries: nil, overrides: {}, served_cities: {})
         @source = source
         @subdivisions = subdivisions
         @boundaries = boundaries
         @overrides = overrides
+        @served_cities = served_cities
         @superseded = []
       end
 
@@ -105,7 +133,7 @@ module Trackberry
       end
 
       def subdivided_count
-        rows.count { |row| !row[10].nil? }
+        rows.count { |row| !row[HEADERS.index("subdivision_path")].nil? }
       end
 
       # Overrides worth a person's attention, written the way they should read
@@ -117,8 +145,12 @@ module Trackberry
         stale = (@overrides.keys - rows.map(&:first)).sort
           .map { |iata| "`#{iata}` is overridden but no longer in the table: remove its row." }
         superseded = @superseded.uniq.sort.map do |iata, own, override|
-          same = own == override ? "the same code" : "#{own}, not #{override}"
-          "`#{iata}` is now placed without its override (#{same}): its row can go."
+          if own == override
+            "`#{iata}` is now placed at #{own} without its override: its row can go."
+          else
+            "`#{iata}` is now placed at #{own} without its override, which says #{override}: check which is right " \
+              "before removing the row."
+          end
         end
         stale + superseded
       end
@@ -148,10 +180,28 @@ module Trackberry
         lng = coordinate(row["longitude_deg"])
         subdivision, source = subdivision_for(iata, country, row["iso_region"], lat, lng)
         path = @subdivisions&.path(subdivision) || []
+        # A person chose the override, so losing it is an error, not a gap.
+        raise ArgumentError, "#{iata}: override #{subdivision} has a broken ISO 3166-2 chain" if path.empty? && source == "override"
+
         subdivision = source = nil if path.empty?
-        [iata, presence(row["icao_code"]), row["name"].strip, city(row["municipality"]), country, lat, lng,
-          row["type"], row["scheduled_service"] == "yes" ? "yes" : "no",
+        municipality = municipality(row["municipality"])
+        [iata, presence(row["icao_code"]), row["name"].strip, served_city(iata, lat, lng) || municipality, municipality,
+          country, lat, lng, row["type"], row["scheduled_service"] == "yes" ? "yes" : "no",
           subdivision, path.last, path.empty? ? nil : path.join(" "), source]
+      end
+
+      def served_city(iata, lat, lng)
+        city, served_lat, served_lng = @served_cities[iata]
+        return nil if city.nil? || lat.nil? || lng.nil?
+
+        city if distance_km(lat, lng, served_lat, served_lng) <= SERVED_CITY_WITHIN_KM
+      end
+
+      # Equirectangular: exact enough to tell the same airport from another
+      # one, which is all this is for.
+      def distance_km(lat1, lng1, lat2, lng2)
+        x = (lng2 - lng1) * Math.cos((lat1 + lat2) * Math::PI / 360)
+        Math.sqrt((x**2) + ((lat2 - lat1)**2)) * 111.32
       end
 
       # [code, source], or [nil, nil] when no source has a valid one.
@@ -176,7 +226,11 @@ module Trackberry
         [nil, nil]
       end
 
-      # The first code the map gives for the point that ISO recognises.
+      # The first code the map gives for the point that ISO recognises. The map
+      # answers with the area containing the point, and only when none does
+      # (an airport on reclaimed land, past the drawn coastline) with the
+      # nearest one within 10 km, so a refinement from a neighbouring area is
+      # limited to those.
       def mapped(country, lat, lng)
         return nil if @boundaries.nil? || lat.nil? || lng.nil?
 
@@ -194,7 +248,7 @@ module Trackberry
       # OurAirports sometimes adds a note in brackets after the town:
       # "Helsinki (Vantaa)", "Köln (Cologne)". The town is what a person, a
       # carrier or a geocoder names, so the trailing note is dropped.
-      def city(value)
+      def municipality(value)
         presence(value.to_s.sub(/\s*\([^()]*\)\s*\z/, ""))
       end
 

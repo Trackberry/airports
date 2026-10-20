@@ -11,7 +11,8 @@ class AirportsTest < Minitest::Test
     assert_equal "FRA", airport.iata
     assert_equal "EDDF", airport.icao
     assert_equal "DE", airport.country
-    assert_equal "Frankfurt am Main", airport.city
+    assert_equal "Frankfurt", airport.city
+    assert_equal "Frankfurt am Main", airport.municipality
     assert_equal "large_airport", airport.kind
     assert airport.scheduled
   end
@@ -36,16 +37,21 @@ class AirportsTest < Minitest::Test
     assert_in_delta(-0.46, point["lng"], 0.05)
   end
 
-  def test_drops_the_note_in_brackets_after_a_city
-    assert_equal "Helsinki", Trackberry::Airports.city("HEL")
+  # The city a courier names, not the town the runway is in.
+  def test_names_the_city_an_airport_serves
+    assert_equal "Brussels", Trackberry::Airports.city("BRU")
+    assert_equal "Zaventem", Trackberry::Airports.find("BRU").municipality
+    assert_equal "Athens", Trackberry::Airports.city("ATH")
   end
 
-  # OurAirports stops at Grand Est; the map adds the department and
-  # Alsace-Moselle, where Good Friday is a holiday.
+  # OurAirports stops at Grand Est; the map adds the department and, for
+  # Strasbourg, the European Collectivity of Alsace above it. Moselle (Metz)
+  # sits directly in Grand Est: ISO has no Alsace-Moselle code.
   def test_places_an_airport_below_the_level_ourairports_gives
     assert_equal %w[FR-67 FR-6AE FR-GES], Trackberry::Airports.subdivision_path("SXB")
     assert_equal "FR-67", Trackberry::Airports.subdivision("SXB")
     assert_equal "FR-GES", Trackberry::Airports.principal_subdivision("SXB")
+    assert_equal %w[FR-57 FR-GES], Trackberry::Airports.subdivision_path("ETZ")
   end
 
   def test_places_airports_where_holidays_differ_by_region
@@ -59,6 +65,9 @@ class AirportsTest < Minitest::Test
   def test_the_table_is_whole
     assert_operator Trackberry::Airports.count, :>=, Trackberry::Airports::Diff::MINIMUM_COUNT
     Trackberry::Airports::Diff::ANCHORS.each { |iata| refute_nil Trackberry::Airports.find(iata), iata }
+    Trackberry::Airports::Diff::ANCHOR_REGIONS.each do |iata, region|
+      assert_equal region, Trackberry::Airports.principal_subdivision(iata), iata
+    end
   end
 
   def test_all_hands_out_a_copy

@@ -6,7 +6,7 @@ Every airport with an IATA code (about 9,000), with its name, city, position and
 require "trackberry/airports"
 
 Trackberry::Airports.find("FRA")              # => #<data Trackberry::Airports::Airport iata="FRA", icao="EDDF", ...>
-Trackberry::Airports.city("FRA")              # => "Frankfurt am Main"
+Trackberry::Airports.city("FRA")              # => "Frankfurt"
 Trackberry::Airports.country("FRA")           # => "DE"
 Trackberry::Airports.coordinates("FRA")       # => { "lat" => 50.0267, "lng" => 8.5584 }
 Trackberry::Airports.subdivision_path("SXB")  # => ["FR-67", "FR-6AE", "FR-GES"]
@@ -32,7 +32,7 @@ Where the code comes from, best first (the `subdivision_source` column says whic
 | `ourairports`: OurAirports' `iso_region` | 7,903 | Frankfurt `DE-HE`, Hamburg `DE-HH` |
 
 The map is used two ways:
-- **To go below OurAirports.** OurAirports stops at the top level: Grand Est for Strasbourg. When the map finds an area inside that code (Bas-Rhin, inside Alsace-Moselle, inside Grand Est), the airport gets the longer path, because some rules are kept at that level (Alsace-Moselle has two public holidays the rest of France does not, though Nager.Date does not list them yet). When the map disagrees with OurAirports, OurAirports wins.
+- **To go below OurAirports.** OurAirports stops at the top level: Grand Est for Strasbourg. When the map finds an area inside that code, the airport gets the longer path: Bas-Rhin, inside the European Collectivity of Alsace, inside Grand Est. Some rules are kept at those levels. Alsace and Moselle have two public holidays the rest of France does not, which a calendar would key on `FR-6AE` and `FR-57`; Nager.Date does not list them yet. When the map disagrees with OurAirports, OurAirports wins. The map answers with the area containing the airport, and only for an airport outside every area (built on reclaimed land, past the drawn coastline) with the nearest one within 10 km.
 - **To fill a gap.** OurAirports still writes some codes ISO has replaced, such as China's pre-2017 numeric ones, and `XX-U-A` for "unassigned".
 
 8,734 of 9,051 airports are placed. The 317 left have no subdivision because both sources still use codes ISO has retired (Poland, Norway, South Africa, Czechia, Kazakhstan) or the territory has none (French Polynesia, Puerto Rico). None of them is in a country whose public holidays differ by region, so a holiday lookup by country is complete for them.
@@ -41,11 +41,17 @@ Every code is checked against ISO 3166-2 when the table is built. The ISO hierar
 
 ## Cities
 
-`city` is OurAirports' municipality without a trailing note in brackets: "Helsinki", not "Helsinki (Vantaa)". It is the town the airport serves, which is not always the one it stands in.
+`city` is the city the airport serves, the one a carrier, a courier or a person names: "Brussels", "Athens", "Leipzig". `municipality` is the town it stands in, as OurAirports gives it: "Zaventem", "Spata-Artemida", "Schkeuditz". They are the same for most airports.
+
+The served city comes from [OpenFlights](https://openflights.org/data) for the 6,000 airports it lists. OpenFlights stopped updating in 2019, so its cities were extracted once into `data/sources/served_cities.csv` by `script/extract_served_cities.rb`, from a pinned commit. A city carries over only when OpenFlights puts the airport within 50 km of OurAirports' position, so a code IATA has since given to another airport does not bring the old city with it. Every other airport takes its municipality, without a trailing note in brackets: "Helsinki", not "Helsinki (Vantaa)".
+
+The subdivision always follows where the airport is, not the city it serves: Cincinnati's airport is in Kentucky (`US-KY`), not Ohio.
 
 ## Data
 
 [OurAirports](https://ourairports.com/data/) (public domain), filtered to airports with an IATA code that are not closed. When two rows share a code, the one with scheduled flights wins, then the larger airport. Coordinates are rounded to four decimal places (about ten metres).
+
+Served cities: [OpenFlights](https://openflights.org/data), © OpenFlights contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/).
 
 ## Refresh
 
@@ -57,8 +63,9 @@ Every code is checked against ISO 3166-2 when the table is built. The ISO hierar
    - the table shrinks by no more than 2%;
    - airports with a subdivision fall by no more than 2%;
    - no more than 2% move to another principal subdivision;
-   - two dozen major airports (FRA, LHR, JFK, LIM…) are all present.
-3. If it passes, the job opens a pull request listing every added, removed, renamed, moved and resubdivided airport. If it fails, or a download fails, it opens an issue instead.
+   - two dozen major airports (FRA, LHR, JFK, LIM…) are all present;
+   - fourteen of them, in countries whose holidays differ by region, keep their principal subdivision (FRA in `DE-HE`, MUC in `DE-BY`…), because one country's codes breaking stays under the percentage caps.
+3. If it passes, the job opens a pull request listing every added, removed, renamed, moved, re-citied and resubdivided airport, and starts CI on it. If it fails, or a download fails, it opens an issue instead.
 
 Merging a refresh bumps the minor version, and `.github/workflows/release.yml` publishes it to Trackberry's GitHub Packages registry.
 

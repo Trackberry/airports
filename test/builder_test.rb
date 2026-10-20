@@ -14,7 +14,10 @@ class BuilderTest < Minitest::Test
     1,LFST,large_airport,Strasbourg Airport,48.538299,7.62823,505,EU,FR,FR-GES,Strasbourg,yes,LFST,SXB,,,,,
     2,EDDH,large_airport,Hamburg Airport,53.630402,9.98823,53,EU,DE,DE-HH,Hamburg,yes,EDDH,HAM,,,,,
     3,EFHK,large_airport,Helsinki Vantaa Airport,60.3172,24.963301,179,EU,FI,FI-18,Helsinki (Vantaa),yes,EFHK,HEL,,,,,
-    4,XOLD,closed,Old Hamburg Field,53.6,9.9,0,EU,DE,DE-HH,Hamburg,no,,HAM,,,,,
+    4,AOLD,closed,Old Hamburg Field,53.6,9.9,0,EU,DE,DE-HH,Hamburg,yes,,HAM,,,,,
+    11,XBIG,large_airport,Unscheduled Base,50.0,8.0,0,EU,DE,DE-HE,Somewhere,no,,SCH,,,,,
+    12,XSMA,small_airport,Scheduled Strip,50.1,8.1,0,EU,DE,DE-HE,Somewhere,yes,,SCH,,,,,
+    13,EBBR,large_airport,Brussels Airport,50.901402,4.48444,175,EU,BE,BE-VBR,Zaventem,yes,EBBR,BRU,,,,,
     5,ZBAA,large_airport,Beijing Capital,40.0801,116.584999,116,AS,CN,CN-11,Beijing,yes,ZBAA,PEK,,,,,
     6,XHEL,heliport,Hamburg Heliport,53.55,10.0,0,EU,DE,DE-HH,Hamburg,no,,HHP,,,,,
     7,XDUP,small_airport,Duplicate Field,53.0,9.0,0,EU,DE,DE-NI,Somewhere,no,,HHP,,,,,
@@ -72,21 +75,50 @@ class BuilderTest < Minitest::Test
   end
 
   def test_keeps_one_row_per_iata_code_sorted
-    assert_equal %w[HAM HEL HHP MLH PEK PPT SXB], rows.map(&:first)
+    assert_equal %w[BRU HAM HEL HHP MLH PEK PPT SCH SXB], rows.map(&:first)
   end
 
   # IATA hands a retired code to someone else, so a closed airport must not
-  # shadow the one that holds it now.
+  # shadow the one that holds it now, even one that once had airlines and
+  # sorts first.
   def test_ignores_closed_airports
     assert_equal "Hamburg Airport", row("HAM", rows)["name"]
   end
 
-  def test_prefers_the_airport_an_airline_flies_to_then_the_larger_one
+  def test_prefers_the_airport_an_airline_flies_to
+    assert_equal "Scheduled Strip", row("SCH", rows)["name"]
+  end
+
+  def test_then_prefers_the_larger_airport
     assert_equal "Duplicate Field", row("HHP", rows)["name"] # neither is scheduled, and an airfield outranks a heliport
   end
 
-  def test_drops_the_note_in_brackets_after_the_city
+  def test_drops_the_note_in_brackets_after_the_municipality
+    assert_equal "Helsinki", row("HEL", rows)["municipality"]
     assert_equal "Helsinki", row("HEL", rows)["city"]
+  end
+
+  # OurAirports puts Brussels Airport in Zaventem; a courier says Brussels.
+  def test_takes_the_served_city_for_the_same_airport
+    served = { "BRU" => ["Brussels", 50.9014, 4.4844] }
+    brussels = row("BRU", rows(served_cities: served))
+
+    assert_equal "Brussels", brussels["city"]
+    assert_equal "Zaventem", brussels["municipality"]
+  end
+
+  # The code has since gone to an airport on the other side of the world.
+  def test_ignores_a_served_city_for_an_airport_somewhere_else
+    served = { "BRU" => ["Bruny Island", -43.3, 147.3] }
+
+    assert_equal "Zaventem", row("BRU", rows(served_cities: served))["city"]
+  end
+
+  def test_reads_the_shipped_served_cities
+    served = Trackberry::Airports::Builder.served_cities
+
+    assert_equal "Brussels", served.fetch("BRU").first
+    assert_operator served.size, :>, 5_000
   end
 
   def test_rounds_coordinates_to_about_ten_metres
@@ -144,12 +176,25 @@ class BuilderTest < Minitest::Test
 
     assert_equal "DE-NI", Trackberry::Airports::Builder::HEADERS.zip(builder.rows.find { |r| r.first == "HAM" }).to_h["subdivision"]
     assert_equal 2, builder.override_report.size
-    assert_match(/`HAM`.*DE-HH, not DE-NI/, builder.override_report.join("\n"))
+    assert_match(/`HAM` is now placed at DE-HH without its override, which says DE-NI: check/, builder.override_report.join("\n"))
     assert_match(/`ZZZ`.*no longer in the table/, builder.override_report.join("\n"))
+  end
+
+  def test_an_override_that_agrees_with_the_sources_can_go
+    builder = Trackberry::Airports::Builder.new(SOURCE, subdivisions:, overrides: { "HAM" => "DE-HH" })
+
+    assert_equal ["`HAM` is now placed at DE-HH without its override: its row can go."], builder.override_report
   end
 
   def test_an_override_iso_does_not_know_stops_the_build
     builder = Trackberry::Airports::Builder.new(SOURCE, subdivisions:, overrides: { "HAM" => "DE-XX" })
+
+    assert_raises(ArgumentError) { builder.rows }
+  end
+
+  def test_an_override_whose_iso_chain_breaks_stops_the_build
+    broken = Seaports::Subdivisions.parse(JSON.dump("3166-2" => LIST["3166-2"] + [{ "code" => "DE-XX", "parent" => "DE-GONE" }]))
+    builder = Trackberry::Airports::Builder.new(SOURCE, subdivisions: broken, overrides: { "HAM" => "DE-XX" })
 
     assert_raises(ArgumentError) { builder.rows }
   end

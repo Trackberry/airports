@@ -18,12 +18,16 @@ module Trackberry
   # `rake airports:refresh` regenerates it; nothing else should write it.
   #
   #   Trackberry::Airports.find("FRA")              # => #<data Trackberry::Airports::Airport iata="FRA", ...>
-  #   Trackberry::Airports.city("FRA")              # => "Frankfurt am Main"
+  #   Trackberry::Airports.city("FRA")              # => "Frankfurt"
   #   Trackberry::Airports.coordinates("FRA")       # => { "lat" => 50.0267, "lng" => 8.5584 }
   #   Trackberry::Airports.subdivision_path("SXB")  # => ["FR-67", "FR-6AE", "FR-GES"]
   module Airports
     TABLE_PATH = File.expand_path("../../data/airports.csv", __dir__)
 
+    # +city+ is the city the airport serves, the one a carrier or a person
+    # names: "Brussels" for Brussels Airport. +municipality+ is the town it
+    # stands in: "Zaventem". They are the same for most airports.
+    #
     # +kind+ is OurAirports' type: "large_airport", "medium_airport",
     # "small_airport", "seaplane_base" or "heliport". +scheduled+ is whether
     # airlines fly there on a timetable, which is what separates a city's
@@ -33,11 +37,12 @@ module Trackberry
     # the most specific level known: "DE-HE" for Frankfurt, "FR-67" (Bas-Rhin)
     # for Strasbourg. +subdivision_path+ is that code and every ISO
     # subdivision above it, most specific first: ["FR-67", "FR-6AE",
-    # "FR-GES"]. +principal_subdivision+ is the last of them, ISO's top level.
+    # "FR-GES"], where FR-6AE is the European Collectivity of Alsace.
+    # +principal_subdivision+ is the last of them, ISO's top level.
     # Hand the path to a holiday calendar that matches on any level:
     # Trackberry::Holidays.holiday?(date, path). Nil, and an empty path, for
     # an airport nothing places.
-    Airport = Data.define(:iata, :icao, :name, :city, :country, :coordinates, :kind, :scheduled,
+    Airport = Data.define(:iata, :icao, :name, :city, :municipality, :country, :coordinates, :kind, :scheduled,
       :subdivision, :principal_subdivision, :subdivision_path)
 
     class << self
@@ -55,8 +60,8 @@ module Trackberry
         find(iata)&.name
       end
 
-      # The town the airport serves, as OurAirports names it: "Frankfurt am
-      # Main", "London". Nil when it names none.
+      # The city the airport serves: "Brussels", "Athens". Nil when no source
+      # names one. See Airport.
       def city(iata)
         find(iata)&.city
       end
@@ -125,7 +130,7 @@ module Trackberry
           next if iata.nil? || blank?(row["name"])
 
           airports[iata] = Airport.new(iata: iata, icao: presence(row["icao"]), name: row["name"],
-            city: presence(row["city"]), country: row["country"], coordinates: point(row), kind: row["kind"],
+            city: presence(row["city"]), municipality: presence(row["municipality"]), country: row["country"], coordinates: point(row), kind: row["kind"],
             scheduled: row["scheduled"] == "yes", subdivision: presence(row["subdivision"]),
             principal_subdivision: presence(row["principal_subdivision"]),
             subdivision_path: row["subdivision_path"].to_s.split.freeze)

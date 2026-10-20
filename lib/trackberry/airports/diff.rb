@@ -20,6 +20,16 @@ module Trackberry
         ORD PEK PVG SCL SIN SYD
       ].freeze
 
+      # Where some of them must stay, at the principal level, in countries
+      # whose holidays differ by region. The percentage gates below cannot see
+      # one country's codes breaking (Germany is about 1% of the table), and a
+      # holiday count can.
+      ANCHOR_REGIONS = {
+        "BCN" => "ES-CT", "FRA" => "DE-HE", "GRU" => "BR-SP", "HAM" => "DE-HH", "JFK" => "US-NY",
+        "LHR" => "GB-ENG", "MAD" => "ES-MD", "MIA" => "US-FL", "MUC" => "DE-BY", "SXB" => "FR-GES",
+        "SYD" => "AU-NSW", "VIE" => "AT-9", "YYZ" => "CA-ON", "ZRH" => "CH-ZH"
+      }.freeze
+
       MINIMUM_COUNT = 8_500
 
       # OurAirports adds and closes a handful of IATA airports a month. Losing
@@ -40,7 +50,8 @@ module Trackberry
           iata = row["iata"].to_s.strip.upcase
           next if iata.empty?
 
-          airports[iata] = { name: row["name"].to_s.strip, point: point(row), path: row["subdivision_path"].to_s.split.join(" ") }
+          airports[iata] = { name: row["name"].to_s.strip, city: row["city"].to_s.strip, point: point(row),
+                             path: row["subdivision_path"].to_s.split.join(" ") }
         end
       end
 
@@ -58,7 +69,18 @@ module Trackberry
       end
 
       def changed?
-        !(added.empty? && removed.empty? && renamed.empty? && repositioned.empty? && resubdivided.empty?)
+        !(added.empty? && removed.empty? && renamed.empty? && recitied.empty? && repositioned.empty? && resubdivided.empty?)
+      end
+
+      # [iata, name, was, now] for an airport whose city changed: what a
+      # tracking page shows next to the code, and what a courier geocoder
+      # matches on.
+      def recitied
+        @recitied ||= common.filter_map do |iata|
+          was = @before[iata][:city].to_s
+          now = @after[iata][:city].to_s
+          [iata, @after[iata][:name], was, now] if was != now
+        end
       end
 
       def added
@@ -113,7 +135,7 @@ module Trackberry
       # Empty means the refresh may ship. Anything here is a reason it may
       # not, written the way it should read in an issue.
       def failures
-        [count_failure, shrinkage_failure, region_failure, reassignment_failure, *anchor_failures].compact
+        [count_failure, shrinkage_failure, region_failure, reassignment_failure, *anchor_failures, *anchor_region_failures].compact
       end
 
       def ok?
@@ -127,6 +149,7 @@ module Trackberry
           section("Removed", removed.map { |iata| "`#{iata}` #{@before[iata][:name]}" }, limit: nil),
           section("Added", added.map { |iata| "`#{iata}` #{@after[iata][:name]}" }),
           section("Renamed", renamed.map { |iata, was, now| "`#{iata}` #{was} → #{now}" }),
+          section("City", recitied.map { |iata, name, was, now| "`#{iata}` #{name}: #{was.empty? ? 'none' : was} → #{now.empty? ? 'none' : now}" }),
           section("Coordinates", repositioned.map { |iata, name, kind| "`#{iata}` #{name}: #{POSITION_WORDS.fetch(kind)}" }),
           section("Subdivision", resubdivided.map { |iata, name, was, now| "`#{iata}` #{name}: #{path_words(was)} → #{path_words(now)}" })
         ].compact.join("\n\n")
@@ -142,7 +165,7 @@ module Trackberry
       def headline
         "#{@after.size} airports (#{@before.size} before): " \
           "#{added.size} added, #{removed.size} removed, " \
-          "#{renamed.size} renamed, #{repositioned.size} repositioned, " \
+          "#{renamed.size} renamed, #{recitied.size} with a new city, #{repositioned.size} repositioned, " \
           "#{resubdivided.size} with a new subdivision (#{reassigned.size} moved to another principal one)."
       end
 
@@ -202,6 +225,18 @@ module Trackberry
       def anchor_failures
         ANCHORS.reject { |iata| @after.key?(iata) }
           .map { |iata| "`#{iata}` is gone, and an airport that large does not disappear." }
+      end
+
+      def anchor_region_failures
+        ANCHOR_REGIONS.filter_map do |iata, region|
+          airport = @after[iata]
+          next if airport.nil? # already a failure above
+
+          principal = airport[:path].to_s.split.last
+          next if principal == region
+
+          "`#{iata}` is now in #{principal || 'no subdivision'}, not #{region}: its country's codes broke."
+        end
       end
 
       # Removals are listed in full: they are the changes that break a caller.

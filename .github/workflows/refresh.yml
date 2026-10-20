@@ -1,0 +1,67 @@
+name: Refresh the airport table
+
+# OurAirports is edited every day, but the airports with an IATA code change
+# a few at a time, so once a month is plenty. A refresh opens a pull request
+# rather than pushing: 9,000 rows are not reviewable, but the summary of what
+# moved is, and CI runs against the new table before anyone can merge it.
+on:
+  schedule:
+    - cron: "23 6 3 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+
+      - name: Rebuild from OurAirports
+        run: bundle exec rake airports:refresh
+
+      - name: Read what the rebuild decided
+        id: refresh
+        run: |
+          echo "status=$(cat tmp/refresh/status)" >> "$GITHUB_OUTPUT"
+          if [ -f tmp/refresh/version ]; then
+            echo "version=$(cat tmp/refresh/version)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Nothing to do
+        if: steps.refresh.outputs.status == 'unchanged'
+        run: cat tmp/refresh/summary.md
+
+      # A refusal is not a failed build: the gates did their job and the table
+      # in main is still good. It needs a person, so it gets an issue.
+      - name: Raise the refusal for a person to read
+        if: steps.refresh.outputs.status == 'failed'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh issue create \
+            --title "Airport refresh refused on $(date -u +%Y-%m-%d)" \
+            --body-file tmp/refresh/summary.md \
+            --label "refresh-blocked"
+
+      - name: Open the refresh for review
+        if: steps.refresh.outputs.status == 'ok'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: refresh/ourairports
+          base: main
+          commit-message: "chore(data): Refresh the airport table from OurAirports"
+          title: "Refresh the airport table (${{ steps.refresh.outputs.version }})"
+          body-path: tmp/refresh/summary.md
+          labels: data-refresh
+          add-paths: |
+            data/airports.csv
+            lib/trackberry/airports/version.rb
+            CHANGELOG.md

@@ -17,7 +17,9 @@ Gem::Specification.new do |spec|
     with what changed.
   TEXT
   spec.homepage = "https://github.com/Trackberry/airports"
-  spec.license = "MIT"
+  # The code is MIT. The table carries OpenFlights' served cities, so it is
+  # a derivative database and stays under OpenFlights' ODbL.
+  spec.licenses = ["MIT", "ODbL-1.0"]
 
   spec.required_ruby_version = ">= 3.2.0"
 
@@ -25,8 +27,7 @@ Gem::Specification.new do |spec|
     "source_code_uri" => spec.homepage,
     "changelog_uri" => "#{spec.homepage}/blob/main/CHANGELOG.md",
     "bug_tracker_uri" => "#{spec.homepage}/issues",
-    "github_repo" => "ssh://github.com/Trackberry/airports",
-    "allowed_push_host" => "https://rubygems.pkg.github.com/trackberry",
+    "allowed_push_host" => "https://rubygems.org",
     "rubygems_mfa_required" => "true"
   }
 

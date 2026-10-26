@@ -2,7 +2,7 @@
 
 module Trackberry
   module Airports
-    VERSION = "0.1.0"
+    VERSION = "0.1.1"
 
     # When the shipped table was last fetched from OurAirports. The gem
     # version says what the code does; this says how fresh the data is,

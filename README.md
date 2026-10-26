@@ -14,9 +14,19 @@ Trackberry::Airports.subdivision_path("SXB")  # => ["FR-67", "FR-6AE", "FR-GES"]
 
 An unknown code answers `nil` (or `[]` for a path): carriers send city codes ("LON") and codes of airports that have closed, and that is ordinary, not an error.
 
+## Why not the `airports` gem
+
+[`airports`](https://github.com/timrogers/airports) is the established gem for this, and it does the plain lookup well. This one exists for what it does not do:
+
+- **Fresh data.** `airports` is built from OpenFlights, which stopped updating in 2019, and adds the airports opened since by hand (`BER`, `HYD`). This one is built from OurAirports, which is still maintained, and rebuilt every month behind checks that stop a bad download from shipping.
+- **Where the airport is, inside its country.** `airports` gives the country as a name ("United Kingdom"). This one gives the ISO 3166-2 country code and subdivision path, which is what a regional holiday calendar or a customs rule keys on.
+- **Numbers as numbers.** Coordinates are floats, not strings.
+
+`airports` has time zones; this one does not. If that is all you need, use it.
+
 ## Subdivisions
 
-`subdivision_path` is the ISO 3166-2 code of the area the airport is in and every code above it, most specific first, the same shape [seaports](https://github.com/Trackberry/seaports) gives for a port. Hand it to [trackberry-holidays](https://github.com/Trackberry/holidays), which matches a holiday at any level of the path:
+`subdivision_path` is the ISO 3166-2 code of the area the airport is in and every code above it, most specific first, the same shape [seaports](https://github.com/Trackberry/seaports) gives for a port. Hand it to a holiday calendar that matches a holiday at any level of the path, such as Trackberry's own (not published):
 
 ```ruby
 Trackberry::Holidays.holiday?(Date.new(2027, 5, 27), Trackberry::Airports.subdivision_path("MUC"))  # => true, Corpus Christi in Bavaria
@@ -53,6 +63,10 @@ The subdivision always follows where the airport is, not the city it serves: Cin
 
 Served cities: [OpenFlights](https://openflights.org/data), © OpenFlights contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/).
 
+## License
+
+The code is MIT. The table (`data/airports.csv`) is a derivative of OpenFlights' database, so it is under the [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/): a database you build from it and use publicly has to credit OpenFlights and be offered under the ODbL too. Using the gem to look airports up does not. See `LICENSE.txt`.
+
 ## Refresh
 
 `.github/workflows/refresh.yml` runs on the 3rd of every month:
@@ -67,14 +81,12 @@ Served cities: [OpenFlights](https://openflights.org/data), © OpenFlights contr
    - fourteen of them, in countries whose holidays differ by region, keep their principal subdivision (FRA in `DE-HE`, MUC in `DE-BY`…), because one country's codes breaking stays under the percentage caps.
 3. If it passes, the job opens a pull request listing every added, removed, renamed, moved, re-citied and resubdivided airport, and starts CI on it. If it fails, or a download fails, it opens an issue instead.
 
-Merging a refresh bumps the minor version, and `.github/workflows/release.yml` publishes it to Trackberry's GitHub Packages registry.
+Merging a refresh bumps the minor version, and `.github/workflows/release.yml` publishes it to [rubygems.org](https://rubygems.org/gems/trackberry-airports).
 
 To rebuild from files already on disk: `bundle exec rake "airports:refresh[airports.csv,iso_3166-2.json,admin1.geojson]"`.
 
 ## Install
 
 ```ruby
-source "https://rubygems.pkg.github.com/trackberry" do
-  gem "trackberry-airports", "~> 0.1", require: "trackberry/airports"
-end
+gem "trackberry-airports", "~> 0.1", require: "trackberry/airports"
 ```

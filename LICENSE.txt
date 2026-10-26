@@ -22,7 +22,17 @@ SOFTWARE.
 
 ---
 
-The sea-port table in data/ is derived from the UN/LOCODE code list published
-by the United Nations Economic Commission for Europe, which is public domain,
-by way of the datasets/un-locode distribution released under the Open Data
-Commons Public Domain Dedication and Licence (PDDL-1.0).
+The MIT License above covers the code. It does not cover the airport table.
+
+data/airports.csv and data/sources/served_cities.csv contain information from
+OpenFlights (https://openflights.org/data), © OpenFlights contributors, which
+is made available under the Open Database License (ODbL) 1.0:
+https://opendatacommons.org/licenses/odbl/1-0/. Any rights in individual
+contents of the database are licensed under the Database Contents License:
+https://opendatacommons.org/licenses/dbcl/1-0/. Both files are made available
+under the same terms.
+
+The rest of the table comes from public-domain sources: OurAirports
+(https://ourairports.com/data/) for the airports, and Natural Earth
+(https://www.naturalearthdata.com) for the states-and-provinces map that
+places some of them.

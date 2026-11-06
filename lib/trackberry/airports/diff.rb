@@ -76,11 +76,7 @@ module Trackberry
       # tracking page shows next to the code, and what a courier geocoder
       # matches on.
       def recitied
-        @recitied ||= common.filter_map do |iata|
-          was = @before[iata][:city].to_s
-          now = @after[iata][:city].to_s
-          [iata, @after[iata][:name], was, now] if was != now
-        end
+        @recitied ||= changed_text(:city)
       end
 
       def added
@@ -117,11 +113,7 @@ module Trackberry
       # can move an airport onto another holiday calendar, so all are listed,
       # though none is a failure on its own.
       def resubdivided
-        @resubdivided ||= common.filter_map do |iata|
-          was = @before[iata][:path].to_s
-          now = @after[iata][:path].to_s
-          [iata, @after[iata][:name], was, now] if was != now
-        end
+        @resubdivided ||= changed_text(:path)
       end
 
       # The subset of resubdivided whose principal subdivision went from one
@@ -170,6 +162,15 @@ module Trackberry
       end
 
       private
+
+      # [iata, name, was, now] for each airport in both tables whose text field `key` differs (nil read as "").
+      def changed_text(key)
+        common.filter_map do |iata|
+          was = @before[iata][key].to_s
+          now = @after[iata][key].to_s
+          [iata, @after[iata][:name], was, now] if was != now
+        end
+      end
 
       def common
         @common ||= (@before.keys & @after.keys).sort

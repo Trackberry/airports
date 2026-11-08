@@ -57,39 +57,33 @@ module Trackberry
       end
 
       # Reads OVERRIDES_PATH (or +path+) into { iata => ISO 3166-2 code }.
-      #
-      # The file is typed by people, so a blank cell, a malformed code or an
-      # airport listed twice stops the build with the line to fix.
       def self.overrides(path = OVERRIDES_PATH)
-        return {} unless File.exist?(path)
-
-        CSV.foreach(path, headers: true).with_index(2).each_with_object({}) do |(row, line), overrides|
-          iata = row["iata"].to_s.strip.upcase
-          code = row["subdivision"].to_s.strip.upcase
-          raise ArgumentError, "#{path}:#{line}: #{iata.inspect} is not an IATA code" unless iata.match?(/\A[A-Z0-9]{3}\z/)
-          raise ArgumentError, "#{path}:#{line}: #{iata} has no subdivision" if code.empty?
-          raise ArgumentError, "#{path}:#{line}: #{iata} is listed twice" if overrides.key?(iata)
-
-          overrides[iata] = code
-        end
+        read_reviewed(path, "subdivision", "subdivision", &:upcase)
       end
 
-      # Reads SHORT_NAME_OVERRIDES_PATH (or +path+) into { iata => short name },
-      # with the same strictness as overrides: typed by people, so a mistake
-      # stops the build with the line to fix.
+      # Reads SHORT_NAME_OVERRIDES_PATH (or +path+) into { iata => short name }.
       def self.short_name_overrides(path = SHORT_NAME_OVERRIDES_PATH)
+        read_reviewed(path, "short_name", "short name", &:itself)
+      end
+
+      # Reads a reviewed file into { iata => +column+, as the block leaves it }.
+      #
+      # These files are typed by people, so a blank cell, a malformed code or
+      # an airport listed twice stops the build with the line to fix.
+      def self.read_reviewed(path, column, label)
         return {} unless File.exist?(path)
 
-        CSV.foreach(path, headers: true).with_index(2).each_with_object({}) do |(row, line), overrides|
+        CSV.foreach(path, headers: true).with_index(2).each_with_object({}) do |(row, line), reviewed|
           iata = row["iata"].to_s.strip.upcase
-          label = row["short_name"].to_s.strip
+          value = yield row[column].to_s.strip
           raise ArgumentError, "#{path}:#{line}: #{iata.inspect} is not an IATA code" unless iata.match?(/\A[A-Z0-9]{3}\z/)
-          raise ArgumentError, "#{path}:#{line}: #{iata} has no short name" if label.empty?
-          raise ArgumentError, "#{path}:#{line}: #{iata} is listed twice" if overrides.key?(iata)
+          raise ArgumentError, "#{path}:#{line}: #{iata} has no #{label}" if value.empty?
+          raise ArgumentError, "#{path}:#{line}: #{iata} is listed twice" if reviewed.key?(iata)
 
-          overrides[iata] = label
+          reviewed[iata] = value
         end
       end
+      private_class_method :read_reviewed
 
       # Reads SERVED_CITIES_PATH (or +path+) into { iata => [city, lat, lng] }.
       #

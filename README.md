@@ -7,6 +7,7 @@ require "trackberry/airports"
 
 Trackberry::Airports.find("FRA")              # => #<data Trackberry::Airports::Airport iata="FRA", icao="EDDF", ...>
 Trackberry::Airports.city("FRA")              # => "Frankfurt"
+Trackberry::Airports.short_name("LIM")        # => "Lima Jorge Chávez"
 Trackberry::Airports.country("FRA")           # => "DE"
 Trackberry::Airports.coordinates("FRA")       # => { "lat" => 50.0267, "lng" => 8.5584 }
 Trackberry::Airports.subdivision_path("SXB")  # => ["FR-67", "FR-6AE", "FR-GES"]
@@ -56,6 +57,12 @@ Every code is checked against ISO 3166-2 when the table is built. The ISO hierar
 The served city comes from [OpenFlights](https://openflights.org/data) for the 6,000 airports it lists. OpenFlights stopped updating in 2019, so its cities were extracted once into `data/sources/served_cities.csv` by `script/extract_served_cities.rb`, from a pinned commit. A city carries over only when OpenFlights puts the airport within 50 km of OurAirports' position, so a code IATA has since given to another airport does not bring the old city with it. Every other airport takes its municipality, without a trailing note in brackets: "Helsinki", not "Helsinki (Vantaa)".
 
 The subdivision always follows where the airport is, not the city it serves: Cincinnati's airport is in Kentucky (`US-KY`), not Ohio.
+
+## Short names
+
+`short_name` is the label to show beside a code when the city alone is not enough ("London" is five airports): "London Heathrow", "Lima Jorge Chávez", "Dubai". It is the airport's name without "Airport", "International" and their translations, with the city put in front when what is left does not already say it (compared without accents or case).
+
+Where that reads badly (an official name that runs to eight words, a repeated word, a dotted İ), a reviewed label wins: `data/sources/short_name_overrides.csv`, as `iata,short_name,note`. Like the subdivision overrides it is a build input, not shipped; the label is built into the `short_name` column of the table, so a monthly refresh keeps it. Each refresh lists the rows whose airport has gone or that the rule now labels the same, so they can be removed. An unknown code answers `nil`.
 
 ## Data
 

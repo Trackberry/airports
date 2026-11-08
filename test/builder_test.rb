@@ -217,6 +217,49 @@ class BuilderTest < Minitest::Test
     Trackberry::Airports::Builder.overrides
   end
 
+  def test_builds_the_short_name_into_the_row
+    served = { "BRU" => ["Brussels", 50.9014, 4.4844] }
+
+    assert_equal "Helsinki Vantaa", row("HEL", rows)["short_name"]
+    assert_equal "Brussels", row("BRU", rows(served_cities: served))["short_name"]
+    assert_equal "Zaventem Brussels", row("BRU", rows)["short_name"]
+  end
+
+  def test_a_short_name_override_wins_and_is_reported_once_the_rule_agrees
+    builder = Trackberry::Airports::Builder.new(SOURCE, short_name_overrides: { "SXB" => "Strasbourg Entzheim", "HAM" => "Hamburg", "ZZZ" => "Nowhere" })
+
+    assert_equal "Strasbourg Entzheim", Trackberry::Airports::Builder::HEADERS.zip(builder.rows.find { |r| r.first == "SXB" }).to_h["short_name"]
+    assert_equal 2, builder.override_report.size
+    assert_match(/`HAM` is now labelled "Hamburg" without its short name override: its row can go/, builder.override_report.join("\n"))
+    assert_match(/`ZZZ`.*no longer in the table/, builder.override_report.join("\n"))
+  end
+
+  def test_reads_short_name_overrides_and_rejects_rows_a_person_mistyped
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "short_names.csv")
+      File.write(path, "iata,short_name,note\nham,Hamburg Fuhlsbüttel,fine\n")
+      assert_equal({ "HAM" => "Hamburg Fuhlsbüttel" }, Trackberry::Airports::Builder.short_name_overrides(path))
+
+      ["HAMB,Hamburg,", "HAM,,", "HAM,Hamburg,\nHAM,Hamburg,"].each do |body|
+        File.write(path, "iata,short_name,note\n#{body}\n")
+        error = assert_raises(ArgumentError) { Trackberry::Airports::Builder.short_name_overrides(path) }
+        assert_match(/short_names\.csv:\d+/, error.message)
+      end
+    end
+  end
+
+  def test_shipped_short_name_overrides_are_valid_and_all_still_needed
+    overrides = Trackberry::Airports::Builder.short_name_overrides
+
+    refute_empty overrides
+    overrides.each do |iata, label|
+      airport = Trackberry::Airports.find(iata)
+
+      refute_nil airport, iata
+      refute_equal label, Trackberry::Airports::ShortName.build(airport.name, airport.city), "#{iata}'s override equals the rule"
+    end
+  end
+
   def test_writes_the_table_with_its_headers
     Dir.mktmpdir do |dir|
       path = Trackberry::Airports::Builder.new(SOURCE).write(File.join(dir, "airports.csv"))

@@ -52,7 +52,7 @@ namespace :airports do
         airports::Builder.fetch(args[:boundaries] || Seaports::Boundaries::SOURCE_URL)
       )
       builder = airports::Builder.new(source, subdivisions:, boundaries:, overrides: airports::Builder.overrides,
-        served_cities: airports::Builder.served_cities)
+        served_cities: airports::Builder.served_cities, short_name_overrides: airports::Builder.short_name_overrides)
       builder.write(airports::TABLE_PATH)
 
       diff = airports::Diff.between(before, airports::TABLE_PATH)

@@ -13,3 +13,7 @@ It is empty: every airport left unplaced is in a country whose holidays do not d
 The city each airport serves, as `iata,city,lat,lng`, extracted once from OpenFlights' `airports.dat` by `script/extract_served_cities.rb`. OpenFlights stopped updating in 2019, so the file is not refreshed; the position lets the build skip a city whose code now belongs to another airport. A code OpenFlights lists twice is left out.
 
 © OpenFlights contributors, available under the [Open Database License](https://opendatacommons.org/licenses/odbl/1-0/).
+
+## short_name_overrides.csv
+
+Reviewed labels for `Trackberry::Airports.short_name`, as `iata,short_name,note`, for the airports the rule (the name without "Airport" and "International", the city in front when the name lacks it) gets wrong: an official name that is too long, a repeated word. An override wins over the rule, so a row should be removed once the rule gives the same label; each refresh lists those rows and the ones whose airport has gone.

@@ -3,6 +3,7 @@
 require "csv"
 
 require_relative "../airports"
+require_relative "short_name"
 
 module Trackberry
   module Airports
@@ -22,13 +23,17 @@ module Trackberry
 
       HEADERS = %w[
         iata icao name city municipality country lat lng kind scheduled
-        subdivision principal_subdivision subdivision_path subdivision_source
+        subdivision principal_subdivision subdivision_path subdivision_source short_name
       ].freeze
 
       # Reviewed subdivisions for airports neither OurAirports nor the map
       # places. Kept outside data/*.csv so it is not shipped in the gem; only
       # its result is.
       OVERRIDES_PATH = File.expand_path("../../../data/sources/subdivision_overrides.csv", __dir__)
+
+      # Reviewed short names for the airports ShortName gets wrong. Kept outside
+      # data/*.csv for the same reason; only its result is shipped.
+      SHORT_NAME_OVERRIDES_PATH = File.expand_path("../../../data/sources/short_name_overrides.csv", __dir__)
 
       # The city each airport serves, from OpenFlights. See served_cities.
       SERVED_CITIES_PATH = File.expand_path("../../../data/sources/served_cities.csv", __dir__)
@@ -69,6 +74,23 @@ module Trackberry
         end
       end
 
+      # Reads SHORT_NAME_OVERRIDES_PATH (or +path+) into { iata => short name },
+      # with the same strictness as overrides: typed by people, so a mistake
+      # stops the build with the line to fix.
+      def self.short_name_overrides(path = SHORT_NAME_OVERRIDES_PATH)
+        return {} unless File.exist?(path)
+
+        CSV.foreach(path, headers: true).with_index(2).each_with_object({}) do |(row, line), overrides|
+          iata = row["iata"].to_s.strip.upcase
+          label = row["short_name"].to_s.strip
+          raise ArgumentError, "#{path}:#{line}: #{iata.inspect} is not an IATA code" unless iata.match?(/\A[A-Z0-9]{3}\z/)
+          raise ArgumentError, "#{path}:#{line}: #{iata} has no short name" if label.empty?
+          raise ArgumentError, "#{path}:#{line}: #{iata} is listed twice" if overrides.key?(iata)
+
+          overrides[iata] = label
+        end
+      end
+
       # Reads SERVED_CITIES_PATH (or +path+) into { iata => [city, lat, lng] }.
       #
       # OurAirports names the town an airport stands in: Zaventem for
@@ -104,12 +126,16 @@ module Trackberry
       # +served_cities+ (see Builder.served_cities) gives +city+; an airport it
       # does not hold, or holds somewhere else, takes OurAirports'
       # municipality instead.
-      def initialize(source, subdivisions: nil, boundaries: nil, overrides: {}, served_cities: {})
+      #
+      # +short_name_overrides+ (see Builder.short_name_overrides) replaces
+      # ShortName's label for the airports it gets wrong.
+      def initialize(source, subdivisions: nil, boundaries: nil, overrides: {}, served_cities: {}, short_name_overrides: {})
         @source = source
         @subdivisions = subdivisions
         @boundaries = boundaries
         @overrides = overrides
         @served_cities = served_cities
+        @short_name_overrides = short_name_overrides
         @superseded = []
       end
 
@@ -152,10 +178,24 @@ module Trackberry
               "before removing the row."
           end
         end
-        stale + superseded
+        stale + superseded + short_name_report
       end
 
       private
+
+      # The same reading for the short-name overrides: a row for an airport that
+      # has gone, or that the rule now labels identically, can be removed.
+      def short_name_report
+        held = rows.to_h { |row| [row[HEADERS.index("iata")], row] }
+        @short_name_overrides.sort.filter_map do |iata, label|
+          row = held[iata]
+          if row.nil?
+            "`#{iata}` has a short name override but is no longer in the table: remove its row."
+          elsif ShortName.build(row[HEADERS.index("name")], row[HEADERS.index("city")]) == label
+            "`#{iata}` is now labelled \"#{label}\" without its short name override: its row can go."
+          end
+        end
+      end
 
       # Only rows with an IATA code, because that is the only key a tracking
       # feed gives, and never a closed airport: IATA hands a retired code to
@@ -185,9 +225,12 @@ module Trackberry
 
         subdivision = source = nil if path.empty?
         municipality = municipality(row["municipality"])
-        [iata, presence(row["icao_code"]), row["name"].strip, served_city(iata, lat, lng) || municipality, municipality,
+        name = row["name"].strip
+        city = served_city(iata, lat, lng) || municipality
+        [iata, presence(row["icao_code"]), name, city, municipality,
           country, lat, lng, row["type"], row["scheduled_service"] == "yes" ? "yes" : "no",
-          subdivision, path.last, path.empty? ? nil : path.join(" "), source]
+          subdivision, path.last, path.empty? ? nil : path.join(" "), source,
+          ShortName.build(name, city, override: @short_name_overrides[iata])]
       end
 
       def served_city(iata, lat, lng)

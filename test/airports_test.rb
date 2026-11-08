@@ -44,6 +44,52 @@ class AirportsTest < Minitest::Test
     assert_equal "Athens", Trackberry::Airports.city("ATH")
   end
 
+  # "London" is five airports, so the label says which.
+  def test_short_name_keeps_the_city_the_name_already_says
+    assert_equal "London Heathrow", Trackberry::Airports.short_name("LHR")
+    assert_equal "London Gatwick", Trackberry::Airports.short_name("LGW")
+  end
+
+  def test_short_name_puts_the_city_in_front_of_a_name_that_lacks_it
+    assert_equal "Lima Jorge Chávez", Trackberry::Airports.short_name("LIM")
+    assert_equal "Bogota El Dorado", Trackberry::Airports.short_name("BOG")
+  end
+
+  def test_short_name_of_an_airport_named_for_its_city_is_the_city
+    assert_equal "Dubai", Trackberry::Airports.short_name("DXB")
+    assert_equal "Miami", Trackberry::Airports.short_name("MIA")
+  end
+
+  # The name says "São Paulo", the city is stored as "Sao Paulo"; the official
+  # name is too long, so it is a reviewed label that keeps the accent.
+  def test_short_name_compares_an_accented_city_without_its_accent
+    assert_equal "Sao Paulo", Trackberry::Airports.city("GRU")
+    assert_equal "São Paulo Guarulhos", Trackberry::Airports.short_name("GRU")
+    assert_equal "Istanbul Sabiha Gökçen", Trackberry::Airports.short_name("SAW")
+  end
+
+  def test_short_name_uses_the_reviewed_override
+    assert_equal "Frankfurt", Trackberry::Airports.short_name("FRA")
+    assert_equal "Paris Orly", Trackberry::Airports.short_name("ORY")
+    assert_equal "New York JFK", Trackberry::Airports.short_name("JFK")
+  end
+
+  def test_short_name_tolerates_case_and_answers_nil_for_an_unknown_code
+    assert_equal "London Heathrow", Trackberry::Airports.short_name(" lhr ")
+    assert_nil Trackberry::Airports.short_name("ZZZ")
+    assert_nil Trackberry::Airports.short_name("LON")
+    assert_nil Trackberry::Airports.short_name(nil)
+  end
+
+  def test_short_name_leaves_the_airport_alone
+    assert_equal "London Heathrow Airport", Trackberry::Airports.name("LHR")
+    refute_respond_to Trackberry::Airports.find("LHR"), :short_name
+  end
+
+  def test_every_airport_has_a_short_name
+    Trackberry::Airports.all.each { |airport| refute_nil Trackberry::Airports.short_name(airport.iata), airport.iata }
+  end
+
   # OurAirports stops at Grand Est; the map adds the department and, for
   # Strasbourg, the European Collectivity of Alsace above it. Moselle (Metz)
   # sits directly in Grand Est: ISO has no Alsace-Moselle code.

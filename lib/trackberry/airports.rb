@@ -19,6 +19,7 @@ module Trackberry
   #
   #   Trackberry::Airports.find("FRA")              # => #<data Trackberry::Airports::Airport iata="FRA", ...>
   #   Trackberry::Airports.city("FRA")              # => "Frankfurt"
+  #   Trackberry::Airports.short_name("LIM")        # => "Lima Jorge Chávez"
   #   Trackberry::Airports.coordinates("FRA")       # => { "lat" => 50.0267, "lng" => 8.5584 }
   #   Trackberry::Airports.subdivision_path("SXB")  # => ["FR-67", "FR-6AE", "FR-GES"]
   module Airports
@@ -64,6 +65,19 @@ module Trackberry
       # names one. See Airport.
       def city(iata)
         find(iata)&.city
+      end
+
+      # A compact label a person recognises: "London Heathrow", "Lima Jorge
+      # Chávez", "Dubai". The name without "Airport" and "International", with
+      # the city in front when what is left does not say it, or a reviewed
+      # label where that reads badly. Nil for a code the table does not hold.
+      # See ShortName, and data/sources/short_name_overrides.csv.
+      def short_name(iata)
+        key = normalize(iata)
+        return nil if key.nil?
+
+        table # loads @short_names with it
+        @short_names[key]
       end
 
       # The ISO 3166-1 alpha-2 code of the airport's country, "DE".
@@ -125,16 +139,21 @@ module Trackberry
       LOAD_LOCK = Mutex.new
 
       def load_table
-        CSV.foreach(TABLE_PATH, headers: true).each_with_object({}) do |row, airports|
+        short_names = {}
+        airports = CSV.foreach(TABLE_PATH, headers: true).each_with_object({}) do |row, airports|
           iata = normalize(row["iata"])
           next if iata.nil? || blank?(row["name"])
+
+          short_names[iata] = presence(row["short_name"])
 
           airports[iata] = Airport.new(iata: iata, icao: presence(row["icao"]), name: row["name"],
             city: presence(row["city"]), municipality: presence(row["municipality"]), country: row["country"], coordinates: point(row), kind: row["kind"],
             scheduled: row["scheduled"] == "yes", subdivision: presence(row["subdivision"]),
             principal_subdivision: presence(row["principal_subdivision"]),
             subdivision_path: row["subdivision_path"].to_s.split.freeze)
-        end.freeze
+        end
+        @short_names = short_names.freeze
+        airports.freeze
       end
 
       def point(row)

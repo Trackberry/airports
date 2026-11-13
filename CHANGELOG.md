@@ -2,6 +2,11 @@
 
 Data refreshes are minor versions, opened as pull requests by the monthly refresh workflow. Code changes are written here by hand.
 
+
+## Unreleased
+
+Requires Ruby 3.3 or newer. Ruby 3.2 reached end of life on 2026-03-31 and is no longer tested.
+
 ## 0.3.0 — 2026-11-08
 
 Added `Trackberry::Airports.short_name(iata)`: a compact label such as "London Heathrow" or "Lima Jorge Chávez", built into a new `short_name` column of the table, with nine reviewed overrides in `data/sources/short_name_overrides.csv`. No existing method or `Airport` field changed.

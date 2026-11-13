@@ -21,7 +21,7 @@ Gem::Specification.new do |spec|
   # a derivative database and stays under OpenFlights' ODbL.
   spec.licenses = ["MIT", "ODbL-1.0"]
 
-  spec.required_ruby_version = ">= 3.2.0"
+  spec.required_ruby_version = ">= 3.3.0"
 
   spec.metadata = {
     "source_code_uri" => spec.homepage,

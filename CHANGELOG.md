@@ -2,7 +2,6 @@
 
 Data refreshes are minor versions, opened as pull requests by the monthly refresh workflow. Code changes are written here by hand.
 
-
 ## Unreleased
 
 Requires Ruby 3.3 or newer. Ruby 3.2 reached end of life on 2026-03-31 and is no longer tested.

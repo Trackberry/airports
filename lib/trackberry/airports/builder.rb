@@ -152,10 +152,6 @@ module Trackberry
         path
       end
 
-      def subdivided_count
-        rows.count { |row| !row[HEADERS.index("subdivision_path")].nil? }
-      end
-
       # Overrides worth a person's attention, written the way they should read
       # in a refresh pull request. An override wins over everything, so one
       # that has outlived its reason keeps masking better data until someone

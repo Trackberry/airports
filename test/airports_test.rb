@@ -108,12 +108,39 @@ class AirportsTest < Minitest::Test
     assert_equal "US-FL", Trackberry::Airports.principal_subdivision("MIA")
   end
 
+  def test_gives_the_time_zone_an_airport_keeps
+    assert_equal "Europe/Madrid", Trackberry::Airports.timezone("MAD")
+    assert_equal "Atlantic/Canary", Trackberry::Airports.timezone("LPA")
+    assert_equal "America/Lima", Trackberry::Airports.find("LIM").timezone
+    assert_nil Trackberry::Airports.timezone("ZZZ")
+  end
+
+  # Where the map is not the answer: Xinjiang flies on Beijing time, and Gold
+  # Coast's runway crosses into New South Wales.
+  def test_gives_aviation_time_where_the_map_says_otherwise
+    assert_equal "Asia/Shanghai", Trackberry::Airports.timezone("URC")
+    assert_equal "Australia/Brisbane", Trackberry::Airports.timezone("OOL")
+  end
+
+  # Every zone has to load in an application, or a caller's
+  # TZInfo::Timezone.get raises on an airport rather than on bad input.
+  def test_every_airport_has_a_time_zone_tzinfo_knows
+    require "tzinfo"
+    require "tzinfo/data"
+
+    Trackberry::Airports.all.map(&:timezone).uniq.each do |zone|
+      refute_nil zone
+      TZInfo::Timezone.get(zone)
+    end
+  end
+
   def test_the_table_is_whole
     assert_operator Trackberry::Airports.count, :>=, Trackberry::Airports::Diff::MINIMUM_COUNT
     Trackberry::Airports::Diff::ANCHORS.each { |iata| refute_nil Trackberry::Airports.find(iata), iata }
     Trackberry::Airports::Diff::ANCHOR_REGIONS.each do |iata, region|
       assert_equal region, Trackberry::Airports.principal_subdivision(iata), iata
     end
+    Trackberry::Airports::Diff::ANCHOR_ZONES.each { |iata, zone| assert_equal zone, Trackberry::Airports.timezone(iata), iata }
   end
 
   def test_all_hands_out_a_copy

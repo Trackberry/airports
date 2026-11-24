@@ -32,6 +32,12 @@ contents of the database are licensed under the Database Contents License:
 https://opendatacommons.org/licenses/dbcl/1-0/. Both files are made available
 under the same terms.
 
+data/airports.csv also contains information from timezone-boundary-builder
+(https://github.com/evansiroky/timezone-boundary-builder), built from
+OpenStreetMap data, © OpenStreetMap contributors
+(https://www.openstreetmap.org/copyright), which is made available under the
+ODbL 1.0 too.
+
 The rest of the table comes from public-domain sources: OurAirports
 (https://ourairports.com/data/) for the airports, and Natural Earth
 (https://www.naturalearthdata.com) for the states-and-provinces map that

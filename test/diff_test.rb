@@ -8,14 +8,14 @@ class DiffTest < Minitest::Test
   # A table that passes every gate, every airport placed, so each test can
   # break exactly one thing and know that is what it is reading.
   def healthy(extra = {})
-    airports = (Diff::ANCHORS | Diff::ANCHOR_REGIONS.keys).to_h { |iata| [iata, anchor(iata)] }
+    airports = (Diff::ANCHORS | Diff::ANCHOR_REGIONS.keys | Diff::ANCHOR_ZONES.keys).to_h { |iata| [iata, anchor(iata)] }
     filler = Diff::MINIMUM_COUNT + 100 - airports.size - extra.size
     filler.times { |index| airports[format("%03d", index).tr("0-9", "A-J")] = airport("Filler #{index}") }
     airports.merge(extra)
   end
 
-  def airport(name, point: [1.0, 2.0], path: "DE-HH", city: "City")
-    { name: name, city: city, point: point, path: path }
+  def airport(name, point: [1.0, 2.0], path: "DE-HH", city: "City", timezone: "Europe/Berlin")
+    { name: name, city: city, point: point, path: path, timezone: timezone }
   end
 
   def test_a_city_change_ships
@@ -27,7 +27,7 @@ class DiffTest < Minitest::Test
   end
 
   def anchor(iata)
-    airport(iata, path: Diff::ANCHOR_REGIONS.fetch(iata, "DE-HH"))
+    airport(iata, path: Diff::ANCHOR_REGIONS.fetch(iata, "DE-HH"), timezone: Diff::ANCHOR_ZONES.fetch(iata, "Europe/Berlin"))
   end
 
   def test_refuses_a_table_that_moved_an_anchor_out_of_its_region
@@ -103,12 +103,50 @@ class DiffTest < Minitest::Test
     assert(Diff.new(healthy, after).failures.any? { |line| line.include?("another principal subdivision") })
   end
 
+  def test_a_time_zone_change_ships_and_is_listed
+    diff = Diff.new(healthy("ZZ1" => airport("A", timezone: "America/Edmonton")),
+      healthy("ZZ1" => airport("A", timezone: "America/Cambridge_Bay")))
+
+    assert_equal [%w[ZZ1 A America/Edmonton America/Cambridge_Bay]], diff.rezoned
+    assert_predicate diff, :changed?
+    assert_predicate diff, :ok?
+    assert_includes diff.summary, "`ZZ1` A: America/Edmonton → America/Cambridge_Bay"
+    assert_includes diff.headline, "1 with a new time zone"
+  end
+
+  # The first build with the column: every airport gains a zone, which is
+  # not a reshuffle.
+  def test_gaining_time_zones_ships
+    before = healthy.transform_values { |row| row.merge(timezone: "") }
+
+    assert_predicate Diff.new(before, healthy), :ok?
+  end
+
+  def test_refuses_a_table_that_lost_its_time_zones
+    after = healthy.transform_values { |row| row.merge(timezone: "") }
+
+    assert(Diff.new(healthy, after).failures.any? { |line| line.include?("with a time zone fell") })
+  end
+
+  def test_refuses_a_table_that_moved_many_airports_to_another_time_zone
+    after = healthy.transform_values { |row| row.merge(timezone: "Europe/Paris") }
+
+    assert(Diff.new(healthy, after).failures.any? { |line| line.include?("another time zone") })
+  end
+
+  def test_refuses_a_table_that_moved_an_anchor_out_of_its_time_zone
+    after = healthy("URC" => airport("URC", timezone: "Asia/Urumqi"))
+
+    assert(Diff.new(healthy, after).failures.any? { |line| line.include?("`URC` is now in Asia/Urumqi, not Asia/Shanghai") })
+  end
+
   def test_reads_a_written_table
     Dir.mktmpdir do |dir|
       path = File.join(dir, "airports.csv")
-      File.write(path, "#{Trackberry::Airports::Builder::HEADERS.join(',')}\nSXB,LFST,Strasbourg,Strasbourg,Entzheim,FR,48.5383,7.6282,large_airport,yes,FR-67,FR-GES,FR-67 FR-6AE FR-GES,boundaries\n")
+      File.write(path, "#{Trackberry::Airports::Builder::HEADERS.join(',')}\nSXB,LFST,Strasbourg,Strasbourg,Entzheim,FR,48.5383,7.6282,large_airport,yes,FR-67,FR-GES,FR-67 FR-6AE FR-GES,boundaries,Strasbourg Entzheim,Europe/Paris,boundaries\n")
 
-      assert_equal({ "SXB" => { name: "Strasbourg", city: "Strasbourg", point: [48.5383, 7.6282], path: "FR-67 FR-6AE FR-GES" } },
+      assert_equal({ "SXB" => { name: "Strasbourg", city: "Strasbourg", point: [48.5383, 7.6282], path: "FR-67 FR-6AE FR-GES",
+                               timezone: "Europe/Paris" } },
                    Diff.read(path))
     end
   end

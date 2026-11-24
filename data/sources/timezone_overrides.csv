@@ -1,0 +1,5 @@
+iata,timezone,note
+NBW,America/New_York,"Guantánamo Bay Naval Base keeps US Eastern time, inside Cuba"
+OOL,Australia/Brisbane,"The runway crosses into New South Wales, but the airport is in Queensland and runs on its time, without daylight saving"
+TNM,America/Punta_Arenas,"Chile's Antarctic bases keep the time of Magallanes, which administers them"
+UGL,America/Punta_Arenas,"Union Glacier camp is supplied from Punta Arenas and keeps its time; the map has no zone this far inland"

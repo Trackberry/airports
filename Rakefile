@@ -21,9 +21,10 @@ namespace :airports do
   REFRESH_DIR = "tmp/refresh"
 
   desc "Rebuild the table from OurAirports and report what changed"
-  task :refresh, [:source, :subdivisions, :boundaries] do |_task, args|
+  task :refresh, [:source, :subdivisions, :boundaries, :timezones] do |_task, args|
     require_relative "lib/trackberry/airports/builder"
     require_relative "lib/trackberry/airports/diff"
+    require_relative "lib/trackberry/airports/timezones"
     # Build-time only: the ISO 3166-2 hierarchy and the Natural Earth map
     # lookup are seaports', and the gem itself depends on neither.
     require "seaports/subdivisions"
@@ -40,7 +41,7 @@ namespace :airports do
       File.write(before, "#{airports::Builder::HEADERS.join(',')}\n")
     end
 
-    # Three downloads, two hand-kept files and the comparison: any of them
+    # Four downloads, two hand-kept files and the comparison: any of them
     # failing is a refusal for a person to read, the same as a failed gate,
     # not a red build nobody is told about.
     begin
@@ -51,8 +52,12 @@ namespace :airports do
       boundaries = Seaports::Boundaries.parse(
         airports::Builder.fetch(args[:boundaries] || Seaports::Boundaries::SOURCE_URL)
       )
+      timezones = airports::Timezones.parse(
+        airports::Timezones.fetch(args[:timezones] || airports::Timezones::SOURCE_URL)
+      )
       builder = airports::Builder.new(source, subdivisions:, boundaries:, overrides: airports::Builder.overrides,
-        served_cities: airports::Builder.served_cities, short_name_overrides: airports::Builder.short_name_overrides)
+        served_cities: airports::Builder.served_cities, short_name_overrides: airports::Builder.short_name_overrides,
+        timezones:, timezone_overrides: airports::Builder.timezone_overrides)
       builder.write(airports::TABLE_PATH)
 
       diff = airports::Diff.between(before, airports::TABLE_PATH)

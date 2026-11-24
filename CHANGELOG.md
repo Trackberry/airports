@@ -2,7 +2,9 @@
 
 Data refreshes are minor versions, opened as pull requests by the monthly refresh workflow. Code changes are written here by hand.
 
-## Unreleased
+## 0.4.0 — 2026-11-24
+
+Added `Trackberry::Airports.timezone(iata)` and `Airport#timezone`: the IANA zone each airport keeps time in, such as "Europe/Madrid", built into new `timezone` and `timezone_source` columns of the table. Every airport has one: 9,048 from timezone-boundary-builder's map (release 2026f) checked against tzdata's zones for the airport's country, and four reviewed overrides in `data/sources/timezone_overrides.csv`. Xinjiang's airports get Beijing time, which aviation keeps there. The table is now also under OpenStreetMap's ODbL. `Airport` has a new member with no default, so code that builds one, by keyword or by position, must pass it. No other method or field changed, and the airport data is the same as in 0.3.0.
 
 Requires Ruby 3.3 or newer. Ruby 3.2 reached end of life on 2026-03-31 and is no longer tested.
 

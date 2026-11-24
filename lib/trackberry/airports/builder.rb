@@ -4,6 +4,7 @@ require "csv"
 
 require_relative "../airports"
 require_relative "short_name"
+require_relative "timezones"
 
 module Trackberry
   module Airports
@@ -24,6 +25,7 @@ module Trackberry
       HEADERS = %w[
         iata icao name city municipality country lat lng kind scheduled
         subdivision principal_subdivision subdivision_path subdivision_source short_name
+        timezone timezone_source
       ].freeze
 
       # Reviewed subdivisions for airports neither OurAirports nor the map
@@ -34,6 +36,16 @@ module Trackberry
       # Reviewed short names for the airports ShortName gets wrong. Kept outside
       # data/*.csv for the same reason; only its result is shipped.
       SHORT_NAME_OVERRIDES_PATH = File.expand_path("../../../data/sources/short_name_overrides.csv", __dir__)
+
+      # Reviewed time zones for the airports the map gets wrong. Kept outside
+      # data/*.csv for the same reason; only its result is shipped.
+      TIMEZONE_OVERRIDES_PATH = File.expand_path("../../../data/sources/timezone_overrides.csv", __dir__)
+
+      # Zones the map is right about and aviation is not. Xinjiang keeps its
+      # own clock, two hours behind Beijing, which is what tzdata's Asia/Urumqi
+      # records, but its airports, airlines and timetables run on Beijing time
+      # like the rest of China.
+      ZONE_SUBSTITUTES = { "Asia/Urumqi" => "Asia/Shanghai" }.freeze
 
       # The city each airport serves, from OpenFlights. See served_cities.
       SERVED_CITIES_PATH = File.expand_path("../../../data/sources/served_cities.csv", __dir__)
@@ -64,6 +76,11 @@ module Trackberry
       # Reads SHORT_NAME_OVERRIDES_PATH (or +path+) into { iata => short name }.
       def self.short_name_overrides(path = SHORT_NAME_OVERRIDES_PATH)
         read_reviewed(path, "short_name", "short name", &:itself)
+      end
+
+      # Reads TIMEZONE_OVERRIDES_PATH (or +path+) into { iata => IANA id }.
+      def self.timezone_overrides(path = TIMEZONE_OVERRIDES_PATH)
+        read_reviewed(path, "timezone", "time zone", &:itself)
       end
 
       # Reads a reviewed file into { iata => +column+, as the block leaves it }.
@@ -123,14 +140,32 @@ module Trackberry
       #
       # +short_name_overrides+ (see Builder.short_name_overrides) replaces
       # ShortName's label for the airports it gets wrong.
-      def initialize(source, subdivisions: nil, boundaries: nil, overrides: {}, served_cities: {}, short_name_overrides: {})
+      #
+      # +timezones+ (a Timezones, the zone map) gives +timezone+, the IANA zone
+      # the airport is in, once ZONE_SUBSTITUTES has had its say and only when
+      # tzdata lists that zone for the airport's country. Where the map
+      # overlaps two zones, the first by name that passes that check wins, so
+      # Sukhumi, in Georgia by ISO and on Moscow time in practice, gets
+      # Asia/Tbilisi like the rest of its country. A zone that is not
+      # its country's is left out and reported, since an airport on a border
+      # or an enclave (Guantánamo's base runs on US time, inside Cuba) is
+      # where the map is most likely wrong. +timezone_overrides+ (see
+      # Builder.timezone_overrides) wins over the map, and is not held to the
+      # country check: a person chose it. Without the map the time zone
+      # columns stay empty.
+      def initialize(source, subdivisions: nil, boundaries: nil, overrides: {}, served_cities: {}, short_name_overrides: {},
+        timezones: nil, timezone_overrides: {})
         @source = source
         @subdivisions = subdivisions
         @boundaries = boundaries
         @overrides = overrides
         @served_cities = served_cities
         @short_name_overrides = short_name_overrides
+        @timezones = timezones
+        @timezone_overrides = timezone_overrides
         @superseded = []
+        @superseded_zones = []
+        @foreign_zones = []
       end
 
       # One row per airport, in HEADERS order, sorted by IATA code. Sorted
@@ -168,7 +203,7 @@ module Trackberry
               "before removing the row."
           end
         end
-        stale + superseded + short_name_report
+        stale + superseded + short_name_report + timezone_report
       end
 
       private
@@ -185,6 +220,23 @@ module Trackberry
             "`#{iata}` is now labelled \"#{label}\" without its short name override: its row can go."
           end
         end
+      end
+
+      # The time zone overrides read the same way, plus every airport the map
+      # put in another country's zone, which has no time zone until a person
+      # gives it one.
+      def timezone_report
+        held = rows.map(&:first)
+        stale = (@timezone_overrides.keys - held).sort
+          .map { |iata| "`#{iata}` has a time zone override but is no longer in the table: remove its row." }
+        superseded = @superseded_zones.sort.map do |iata, zone|
+          "`#{iata}` is now in #{zone} without its time zone override: its row can go."
+        end
+        foreign = @foreign_zones.sort.map do |iata, country, zone|
+          "`#{iata}` falls in #{zone}, which is not a zone of #{country}: it has no time zone until " \
+            "data/sources/timezone_overrides.csv gives it one."
+        end
+        stale + superseded + foreign
       end
 
       # Only rows with an IATA code, because that is the only key a tracking
@@ -220,7 +272,30 @@ module Trackberry
         [iata, presence(row["icao_code"]), name, city, municipality,
           country, lat, lng, row["type"], row["scheduled_service"] == "yes" ? "yes" : "no",
           subdivision, path.last, path.empty? ? nil : path.join(" "), source,
-          ShortName.build(name, city, override: @short_name_overrides[iata])]
+          ShortName.build(name, city, override: @short_name_overrides[iata]), *timezone_for(iata, country, lat, lng)]
+      end
+
+      # [IANA id, source], or [nil, nil]. See initialize.
+      def timezone_for(iata, country, lat, lng)
+        return [nil, nil] if @timezones.nil?
+
+        found = @timezones.zones_at(lat, lng)
+        candidates = found.map { |zone| ZONE_SUBSTITUTES.fetch(zone, zone) }.uniq
+        mapped = candidates.find { |zone| Timezones.country?(zone, country) }
+
+        if (override = @timezone_overrides[iata])
+          Timezones.canonical(override) # raises for a zone tzdata does not know
+          # Only when the map's zone would stand on its own: Guantánamo's map
+          # zone is its override's, and is still refused without it.
+          if mapped && Timezones.canonical(mapped) == Timezones.canonical(override)
+            @superseded_zones << [iata, override]
+          end
+          return [override, "override"]
+        end
+        return [mapped, "boundaries"] if mapped
+
+        @foreign_zones << [iata, country, found.join(" and ")] unless found.empty?
+        [nil, nil]
       end
 
       def served_city(iata, lat, lng)

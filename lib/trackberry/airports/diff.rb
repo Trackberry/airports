@@ -17,7 +17,7 @@ module Trackberry
       # truncation cannot slip through.
       ANCHORS = %w[
         AMS ATL BOG CDG CPT DXB FRA GRU HKG JFK JNB LAX LHR LIM MEX MIA NBO NRT
-        ORD PEK PVG SCL SIN SYD
+        ORD PEK PVG SCL SIN SYD URC
       ].freeze
 
       # Where some of them must stay, at the principal level, in countries
@@ -28,6 +28,14 @@ module Trackberry
         "BCN" => "ES-CT", "FRA" => "DE-HE", "GRU" => "BR-SP", "HAM" => "DE-HH", "JFK" => "US-NY",
         "LHR" => "GB-ENG", "MAD" => "ES-MD", "MIA" => "US-FL", "MUC" => "DE-BY", "SXB" => "FR-GES",
         "SYD" => "AU-NSW", "VIE" => "AT-9", "YYZ" => "CA-ON", "ZRH" => "CH-ZH"
+      }.freeze
+
+      # And the zones some must keep, one per continent and one where tzdata
+      # and aviation part ways (URC, see Builder::ZONE_SUBSTITUTES). A
+      # percentage gate cannot see one country's zones breaking either.
+      ANCHOR_ZONES = {
+        "FRA" => "Europe/Berlin", "JFK" => "America/New_York", "LIM" => "America/Lima", "NBO" => "Africa/Nairobi",
+        "NRT" => "Asia/Tokyo", "SYD" => "Australia/Sydney", "URC" => "Asia/Shanghai"
       }.freeze
 
       MINIMUM_COUNT = 8_500
@@ -51,7 +59,7 @@ module Trackberry
           next if iata.empty?
 
           airports[iata] = { name: row["name"].to_s.strip, city: row["city"].to_s.strip, point: point(row),
-                             path: row["subdivision_path"].to_s.split.join(" ") }
+                             path: row["subdivision_path"].to_s.split.join(" "), timezone: row["timezone"].to_s.strip }
         end
       end
 
@@ -69,7 +77,8 @@ module Trackberry
       end
 
       def changed?
-        !(added.empty? && removed.empty? && renamed.empty? && recitied.empty? && repositioned.empty? && resubdivided.empty?)
+        !(added.empty? && removed.empty? && renamed.empty? && recitied.empty? && repositioned.empty? && resubdivided.empty? &&
+          rezoned.empty?)
       end
 
       # [iata, name, was, now] for an airport whose city changed: what a
@@ -124,10 +133,17 @@ module Trackberry
         end
       end
 
+      # [iata, name, was, now] for an airport whose time zone changed, each an
+      # IANA id ("" for none). Every one moves the local times read for it.
+      def rezoned
+        @rezoned ||= changed_text(:timezone)
+      end
+
       # Empty means the refresh may ship. Anything here is a reason it may
       # not, written the way it should read in an issue.
       def failures
-        [count_failure, shrinkage_failure, region_failure, reassignment_failure, *anchor_failures, *anchor_region_failures].compact
+        [count_failure, shrinkage_failure, region_failure, reassignment_failure, zone_failure, rezoning_failure,
+          *anchor_failures, *anchor_region_failures, *anchor_zone_failures].compact
       end
 
       def ok?
@@ -143,7 +159,8 @@ module Trackberry
           section("Renamed", renamed.map { |iata, was, now| "`#{iata}` #{was} → #{now}" }),
           section("City", recitied.map { |iata, name, was, now| "`#{iata}` #{name}: #{was.empty? ? 'none' : was} → #{now.empty? ? 'none' : now}" }),
           section("Coordinates", repositioned.map { |iata, name, kind| "`#{iata}` #{name}: #{POSITION_WORDS.fetch(kind)}" }),
-          section("Subdivision", resubdivided.map { |iata, name, was, now| "`#{iata}` #{name}: #{path_words(was)} → #{path_words(now)}" })
+          section("Subdivision", resubdivided.map { |iata, name, was, now| "`#{iata}` #{name}: #{path_words(was)} → #{path_words(now)}" }),
+          section("Time zone", rezoned.map { |iata, name, was, now| "`#{iata}` #{name}: #{was.empty? ? 'none' : was} → #{now.empty? ? 'none' : now}" })
         ].compact.join("\n\n")
       end
 
@@ -158,7 +175,8 @@ module Trackberry
         "#{@after.size} airports (#{@before.size} before): " \
           "#{added.size} added, #{removed.size} removed, " \
           "#{renamed.size} renamed, #{recitied.size} with a new city, #{repositioned.size} repositioned, " \
-          "#{resubdivided.size} with a new subdivision (#{reassigned.size} moved to another principal one)."
+          "#{resubdivided.size} with a new subdivision (#{reassigned.size} moved to another principal one), " \
+          "#{rezoned.size} with a new time zone."
       end
 
       private
@@ -217,6 +235,46 @@ module Trackberry
 
         "#{reassigned.size} airports moved to another principal subdivision, past the " \
           "#{(MAXIMUM_REASSIGNMENT * 100).round}% limit: a source reshuffled its codes."
+      end
+
+      # Losing time zones in bulk means the zone map failed to load or changed
+      # shape, not that airports moved.
+      def zone_failure
+        was = zoned_count(@before)
+        return nil if was.zero?
+
+        now = zoned_count(@after)
+        shrinkage = (was - now).to_f / was
+        return nil if shrinkage <= MAXIMUM_SHRINKAGE
+
+        "Airports with a time zone fell from #{was} to #{now}, past the #{(MAXIMUM_SHRINKAGE * 100).round}% limit."
+      end
+
+      # Gaining or losing a zone is not counted, the same as for subdivisions:
+      # only an airport moved from one zone to another.
+      def rezoning_failure
+        zoned = zoned_count(@before)
+        return nil if zoned.zero?
+
+        moved = rezoned.count { |_, _, was, now| !was.empty? && !now.empty? }
+        return nil if moved.to_f / zoned <= MAXIMUM_REASSIGNMENT
+
+        "#{moved} airports moved to another time zone, past the #{(MAXIMUM_REASSIGNMENT * 100).round}% limit: " \
+          "the zone map reshuffled its names."
+      end
+
+      def zoned_count(airports)
+        airports.count { |_, airport| !airport[:timezone].to_s.empty? }
+      end
+
+      def anchor_zone_failures
+        ANCHOR_ZONES.filter_map do |iata, zone|
+          airport = @after[iata]
+          next if airport.nil? || airport[:timezone] == zone
+
+          "`#{iata}` is now in #{airport[:timezone].to_s.empty? ? 'no time zone' : airport[:timezone]}, not #{zone}: " \
+            "the zone map broke."
+        end
       end
 
       def placed_count(airports)

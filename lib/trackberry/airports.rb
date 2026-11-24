@@ -49,7 +49,13 @@ module Trackberry
     # "Europe/Madrid", for working out its UTC offset on any date. Every
     # airport has one today; nil if a refresh ever leaves one unplaced.
     Airport = Data.define(:iata, :icao, :name, :city, :municipality, :country, :coordinates, :kind, :scheduled,
-      :subdivision, :principal_subdivision, :subdivision_path, :timezone)
+      :subdivision, :principal_subdivision, :subdivision_path, :timezone) do
+      # Optional, so code that built an Airport before the member existed,
+      # by keyword or by position, still does.
+      def initialize(timezone: nil, **members)
+        super
+      end
+    end
 
     class << self
       # Nil for anything the table does not hold. An unknown code is the

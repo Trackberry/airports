@@ -134,6 +134,14 @@ class AirportsTest < Minitest::Test
     end
   end
 
+  def test_an_airport_can_still_be_built_without_a_time_zone
+    members = Trackberry::Airports.find("FRA").to_h.except(:timezone)
+
+    assert_nil Trackberry::Airports::Airport.new(**members).timezone
+    assert_nil Trackberry::Airports::Airport.new(*members.values).timezone
+    assert_equal "Europe/Berlin", Trackberry::Airports::Airport.new(**members, timezone: "Europe/Berlin").timezone
+  end
+
   def test_the_table_is_whole
     assert_operator Trackberry::Airports.count, :>=, Trackberry::Airports::Diff::MINIMUM_COUNT
     Trackberry::Airports::Diff::ANCHORS.each { |iata| refute_nil Trackberry::Airports.find(iata), iata }

@@ -65,7 +65,13 @@ The map is the "with oceans" edition, whose zones reach over territorial waters,
 
 One rule overrides the map: Xinjiang's airports get `Asia/Shanghai`, not `Asia/Urumqi`. Xinjiang keeps a local clock two hours behind Beijing, which is what tzdata records, but its airports and airlines run on Beijing time.
 
-The zones come from tzdata 2026f. An application on an older tzdata can lack a zone created since (`America/Coyhaique` is from 2025), so keep `tzinfo-data` current, or treat a zone it cannot load as no zone.
+### Your tzdata has to know the zone
+
+The table is built against tzdata 2026f, and the application that reads a zone has to know it too. tzinfo, and so ActiveSupport, reads the system's zoneinfo (`/usr/share/zoneinfo`, from the OS `tzdata` package) unless the `tzinfo-data` gem is installed, in which case it reads that instead. Either can be older than the table: `America/Coyhaique`, Chile's Aysén region, has only existed since tzdata 2025b.
+
+- In a Docker image, the base image's `tzdata` package is what counts. Current Debian and Ubuntu images carry it, and rebuilding picks up updates.
+- With `tzinfo-data` in the Gemfile (Windows, JRuby, or by choice), keep the gem current.
+- An unknown zone raises `TZInfo::InvalidTimezoneIdentifier`, and `ActiveSupport::TimeZone[]` answers nil. Treat that as an airport with no zone rather than an error.
 
 ## Cities
 

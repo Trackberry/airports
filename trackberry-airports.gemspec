@@ -8,17 +8,19 @@ Gem::Specification.new do |spec|
   spec.authors = ["Édouard Brière"]
   spec.email = ["edouard.briere@gmail.com"]
 
-  spec.summary = "Airports by IATA code: name, city, position and ISO 3166-2 subdivision, with no network calls."
+  spec.summary = "Airports by IATA code: name, city, position, ISO 3166-2 subdivision and IANA time zone, with no network calls."
   spec.description = <<~TEXT
     Every airport OurAirports lists with an IATA code, shipped inside the gem
     as a CSV. Turns the codes in an air waybill's route into names, cities,
-    map positions and the ISO 3166-2 subdivision path a holiday calendar
-    matches on. A scheduled job rebuilds the table and opens a pull request
-    with what changed.
+    map positions, the ISO 3166-2 subdivision path a holiday calendar
+    matches on, and the IANA time zone a local flight time is read in. A
+    scheduled job rebuilds the table and opens a pull request with what
+    changed.
   TEXT
   spec.homepage = "https://github.com/Trackberry/airports"
-  # The code is MIT. The table carries OpenFlights' served cities, so it is
-  # a derivative database and stays under OpenFlights' ODbL.
+  # The code is MIT. The table carries OpenFlights' served cities and zones
+  # drawn from OpenStreetMap, so it is a derivative database and stays under
+  # their ODbL.
   spec.licenses = ["MIT", "ODbL-1.0"]
 
   spec.required_ruby_version = ">= 3.3.0"

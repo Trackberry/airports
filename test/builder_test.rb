@@ -66,6 +66,28 @@ class BuilderTest < Minitest::Test
     Seaports::Subdivisions.parse(JSON.dump(LIST))
   end
 
+  def zone(tzid, *rings)
+    { "type" => "Feature", "properties" => { "tzid" => tzid }, "geometry" => { "type" => "Polygon", "coordinates" => rings } }
+  end
+
+  # Strasbourg and Basel-Mulhouse in Paris's zone, Hamburg in Berlin's and
+  # Moscow's at once, Helsinki wrongly in Berlin's (a zone Finland does not
+  # keep), Beijing under Xinjiang's clock to see it replaced, and Tahiti on
+  # the open sea. Brussels is on no polygon at all.
+  def timezones
+    Trackberry::Airports::Timezones.parse(JSON.dump(
+      "type" => "FeatureCollection",
+      "features" => [
+        zone("Europe/Paris", square(7.0, 47.0, 2.0)),
+        zone("Europe/Berlin", square(9.5, 53.2)),
+        zone("Europe/Moscow", square(9.5, 53.2)),
+        zone("Europe/Berlin", square(24.5, 60.0)),
+        zone("Asia/Urumqi", square(116.0, 39.5)),
+        zone("Etc/GMT+10", square(-150.0, -18.0))
+      ]
+    ))
+  end
+
   def rows(**options)
     Trackberry::Airports::Builder.new(SOURCE, **options).rows
   end
@@ -257,6 +279,89 @@ class BuilderTest < Minitest::Test
 
       refute_nil airport, iata
       refute_equal label, Trackberry::Airports::ShortName.build(airport.name, airport.city), "#{iata}'s override equals the rule"
+    end
+  end
+
+  def test_leaves_time_zones_empty_without_the_map
+    assert_nil row("HAM", rows)["timezone"]
+  end
+
+  def test_takes_the_zone_the_map_puts_the_airport_in
+    built = rows(timezones:)
+
+    assert_equal "Europe/Berlin", row("HAM", built)["timezone"]
+    assert_equal "boundaries", row("HAM", built)["timezone_source"]
+    assert_equal "Europe/Paris", row("MLH", built)["timezone"]
+  end
+
+  def test_leaves_an_airport_on_no_zone_or_the_open_sea_without_one
+    built = rows(timezones:)
+
+    assert_nil row("BRU", built)["timezone"]
+    assert_nil row("PPT", built)["timezone"]
+    assert_nil row("PPT", built)["timezone_source"]
+  end
+
+  # Where the map overlaps, the zone of the airport's own country wins.
+  def test_picks_the_countrys_zone_where_the_map_overlaps
+    assert_equal "Europe/Berlin", row("HAM", rows(timezones:))["timezone"]
+  end
+
+  def test_flies_xinjiang_on_beijing_time
+    assert_equal "Asia/Shanghai", row("PEK", rows(timezones:))["timezone"]
+  end
+
+  def test_refuses_and_reports_a_zone_that_is_not_the_airports_country
+    builder = Trackberry::Airports::Builder.new(SOURCE, timezones:)
+
+    assert_nil row("HEL", builder.rows)["timezone"]
+    assert_equal ["`HEL` falls in Europe/Berlin, which is not a zone of FI: it has no time zone until " \
+                  "data/sources/timezone_overrides.csv gives it one."], builder.override_report
+  end
+
+  def test_a_time_zone_override_wins_without_the_country_check
+    builder = Trackberry::Airports::Builder.new(SOURCE, timezones:,
+      timezone_overrides: { "HEL" => "Europe/Berlin", "BRU" => "Europe/Brussels", "ZZZ" => "Europe/Paris" })
+
+    assert_equal "Europe/Berlin", row("HEL", builder.rows)["timezone"]
+    assert_equal "override", row("HEL", builder.rows)["timezone_source"]
+    assert_equal "Europe/Brussels", row("BRU", builder.rows)["timezone"]
+    assert_equal ["`ZZZ` has a time zone override but is no longer in the table: remove its row."], builder.override_report
+  end
+
+  def test_a_time_zone_override_the_map_now_agrees_with_can_go
+    builder = Trackberry::Airports::Builder.new(SOURCE, timezones:, timezone_overrides: { "HAM" => "Europe/Berlin" })
+
+    assert_includes builder.override_report, "`HAM` is now in Europe/Berlin without its time zone override: its row can go."
+  end
+
+  def test_a_time_zone_override_tzdata_does_not_know_stops_the_build
+    builder = Trackberry::Airports::Builder.new(SOURCE, timezones:, timezone_overrides: { "HAM" => "Europe/Hamburg" })
+
+    assert_raises(ArgumentError) { builder.rows }
+  end
+
+  def test_reads_time_zone_overrides_and_rejects_rows_a_person_mistyped
+    Dir.mktmpdir do |dir|
+      path = File.join(dir, "timezones.csv")
+      File.write(path, "iata,timezone,note\nool,Australia/Brisbane,fine\n")
+      assert_equal({ "OOL" => "Australia/Brisbane" }, Trackberry::Airports::Builder.timezone_overrides(path))
+
+      ["OOLA,Australia/Brisbane,", "OOL,,", "OOL,Australia/Brisbane,\nOOL,Australia/Brisbane,"].each do |body|
+        File.write(path, "iata,timezone,note\n#{body}\n")
+        error = assert_raises(ArgumentError) { Trackberry::Airports::Builder.timezone_overrides(path) }
+        assert_match(/timezones\.csv:\d+/, error.message)
+      end
+    end
+  end
+
+  def test_shipped_time_zone_overrides_are_valid_and_in_the_table
+    overrides = Trackberry::Airports::Builder.timezone_overrides
+
+    refute_empty overrides
+    overrides.each do |iata, zone|
+      Trackberry::Airports::Timezones.canonical(zone)
+      assert_equal zone, Trackberry::Airports.timezone(iata), iata
     end
   end
 

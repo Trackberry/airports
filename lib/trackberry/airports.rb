@@ -22,6 +22,7 @@ module Trackberry
   #   Trackberry::Airports.short_name("LIM")        # => "Lima Jorge Chávez"
   #   Trackberry::Airports.coordinates("FRA")       # => { "lat" => 50.0267, "lng" => 8.5584 }
   #   Trackberry::Airports.subdivision_path("SXB")  # => ["FR-67", "FR-6AE", "FR-GES"]
+  #   Trackberry::Airports.timezone("MAD")          # => "Europe/Madrid"
   module Airports
     TABLE_PATH = File.expand_path("../../data/airports.csv", __dir__)
 
@@ -43,8 +44,18 @@ module Trackberry
     # Hand the path to a holiday calendar that matches on any level:
     # Trackberry::Holidays.holiday?(date, path). Nil, and an empty path, for
     # an airport nothing places.
+    #
+    # +timezone+ is the IANA id of the zone the airport keeps time in,
+    # "Europe/Madrid", for working out its UTC offset on any date. Every
+    # airport has one today; nil if a refresh ever leaves one unplaced.
     Airport = Data.define(:iata, :icao, :name, :city, :municipality, :country, :coordinates, :kind, :scheduled,
-      :subdivision, :principal_subdivision, :subdivision_path)
+      :subdivision, :principal_subdivision, :subdivision_path, :timezone) do
+      # Optional, so code that built an Airport before the member existed,
+      # by keyword or by position, still does.
+      def initialize(timezone: nil, **members)
+        super
+      end
+    end
 
     class << self
       # Nil for anything the table does not hold. An unknown code is the
@@ -107,6 +118,13 @@ module Trackberry
         find(iata)&.subdivision_path || []
       end
 
+      # "Europe/Berlin" for Frankfurt, or nil. A string, not a zone object, so
+      # the gem needs no time zone library: hand it to TZInfo::Timezone.get or
+      # ActiveSupport::TimeZone[]. See Airport.
+      def timezone(iata)
+        find(iata)&.timezone
+      end
+
       # Every airport in the table, ordered by IATA code. A new array on each
       # call, so a caller cannot reorder the one everyone else reads.
       def all
@@ -150,7 +168,7 @@ module Trackberry
             city: presence(row["city"]), municipality: presence(row["municipality"]), country: row["country"], coordinates: point(row), kind: row["kind"],
             scheduled: row["scheduled"] == "yes", subdivision: presence(row["subdivision"]),
             principal_subdivision: presence(row["principal_subdivision"]),
-            subdivision_path: row["subdivision_path"].to_s.split.freeze)
+            subdivision_path: row["subdivision_path"].to_s.split.freeze, timezone: presence(row["timezone"]))
         end
         @short_names = short_names.freeze
         airports.freeze
